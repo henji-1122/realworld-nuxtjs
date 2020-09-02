@@ -219,3 +219,82 @@ CI/CD方式实现自动部署
   - 提交更新
 
 
+## actions
+```
+name: Publish And Deploy Demo   // 自动部署的名称
+on:
+  push:
+    tags:
+      - 'v*'    // 不是每次提交都部署到服务端，当提交标签时以v开头表示一个版本（打版），才会自动部署
+
+jobs:
+  build-and-deploy:   // 构建和部署
+    runs-on: ubuntu-latest   // 运行环境：在linux环境下
+    steps:
+
+    # 下载源码  CI\CD拉取最新代码到自己本地
+    - name: Checkout
+      uses: actions/checkout@master
+
+    # 打包构建
+    - name: Build
+      uses: actions/setup-node@master
+    - run: npm install  // 安装第三方包
+    - run: npm run build // 打包
+    - run: tar -zcvf release.tgz .nuxt static nuxt.config.js package.json package-lock.json pm2.config.json // 压缩发布包release.tgz
+
+    # 发布 Release
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@master
+      env:
+        GITHUB_TOKEN: ${{ secrets.TOKEN }}  //secrets.TOKEN
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        draft: false
+        prerelease: false
+
+    # 上传构建结果到 Release
+    - name: Upload Release Asset
+      id: upload-release-asset
+      uses: actions/upload-release-asset@master
+      env:
+        GITHUB_TOKEN: ${{ secrets.TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./release.tgz
+        asset_name: release.tgz
+        asset_content_type: application/x-tgz
+
+    # 部署到服务器
+    - name: Deploy
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        password: ${{ secrets.PASSWORD }}
+        port: ${{ secrets.PORT }}
+        script: |   // 运行在远程服务器
+          cd /root/realworld-nuxtjs
+          wget https://github.com/lipengzhou/realworld-nuxtjs/releases/latest/download/release.tgz -O release.tgz  // 下载上传的压缩包 
+          tar zxvf release.tgz   // 解压
+          npm install --production  
+          pm2 reload pm2.config.json
+```
+
+
+## pm2配置文件
+- 相当于他帮我们执行了npm run srart这个命令
+```
+// pm2.config.json
+{
+  "apps": [
+    {
+      "name": "RealWorld",   // 应用的名称
+      "script": "npm",  // 启动脚本
+      "args": "start"  // npm的启动参数
+    }
+  ]
+}
+```
